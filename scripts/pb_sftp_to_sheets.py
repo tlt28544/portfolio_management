@@ -5,7 +5,7 @@ import os
 import re
 from pathlib import Path
 from stat import S_ISDIR
-from typing import Iterable, List, Set, Tuple
+from typing import Iterable, List, Set, Tuple, Union
 
 import paramiko
 from google.oauth2 import service_account
@@ -30,6 +30,17 @@ POSITIONS_COLUMNS = [
 
 FILE_ACCOUNT_RE = re.compile(r"_(\d+)\.csv$", re.IGNORECASE)
 FOLDER_RE = re.compile(r"^\d{8}$")
+NUMERIC_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
+
+# Keep identifier/date-like fields as text even when they look numeric.
+FORCE_TEXT_COLUMNS = {
+    "asof_date",
+    "account_no",
+    "company_code",
+    "product_code",
+    "rpw_no",
+    "row_no",
+}
 
 
 def connect_sftp(private_key_path: str) -> Tuple[paramiko.SSHClient, paramiko.SFTPClient, str]:
@@ -162,8 +173,26 @@ def append_rows(sheets_service, spreadsheet_id: str, tab_name: str, rows: List[L
     return total
 
 
-def normalize_row(row: dict, ordered_columns: List[str]) -> List[str]:
-    return [str(row.get(col, "")) for col in ordered_columns]
+def parse_sheet_value(column: str, value: str) -> Union[str, int, float]:
+    raw = (value or "").strip()
+    if raw == "" or column in FORCE_TEXT_COLUMNS:
+        return raw
+
+    normalized = raw.replace(",", "")
+    if normalized.startswith("(") and normalized.endswith(")"):
+        normalized = f"-{normalized[1:-1]}"
+
+    if not NUMERIC_VALUE_RE.match(normalized):
+        return raw
+
+    if "." in normalized:
+        return float(normalized)
+
+    return int(normalized)
+
+
+def normalize_row(row: dict, ordered_columns: List[str]) -> List[Union[str, int, float]]:
+    return [parse_sheet_value(col, str(row.get(col, ""))) for col in ordered_columns]
 
 
 def download_and_prepare_rows(
