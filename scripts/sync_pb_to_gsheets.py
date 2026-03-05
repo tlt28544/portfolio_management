@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from stat import S_ISDIR
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 from urllib.parse import quote
 
 import paramiko
@@ -46,6 +46,17 @@ POSITIONS_COLUMNS = [
 
 FILE_ACCOUNT_RE = re.compile(r"_(\d+)\.csv$", re.IGNORECASE)
 FOLDER_RE = re.compile(r"^\d{8}$")
+NUMERIC_VALUE_RE = re.compile(r"^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$")
+
+# Keep identifier/date-like fields as text even when they look numeric.
+FORCE_TEXT_COLUMNS = {
+    "asof_date",
+    "account_no",
+    "company_code",
+    "product_code",
+    "rpw_no",
+    "row_no",
+}
 
 
 def get_sheets_service(service_account_json: str):
@@ -161,8 +172,26 @@ def parse_account_no(row: Dict[str, str], source_file: str) -> str:
     return match.group(1) if match else ""
 
 
-def normalize_row(row: Dict[str, str], ordered_columns: Sequence[str]) -> List[str]:
-    return [str(row.get(col, "")) for col in ordered_columns]
+def parse_sheet_value(column: str, value: str) -> Union[str, int, float]:
+    raw = (value or "").strip()
+    if raw == "" or column in FORCE_TEXT_COLUMNS:
+        return raw
+
+    normalized = raw.replace(",", "")
+    if normalized.startswith("(") and normalized.endswith(")"):
+        normalized = f"-{normalized[1:-1]}"
+
+    if not NUMERIC_VALUE_RE.match(normalized):
+        return raw
+
+    if "." in normalized:
+        return float(normalized)
+
+    return int(normalized)
+
+
+def normalize_row(row: Dict[str, str], ordered_columns: Sequence[str]) -> List[Union[str, int, float]]:
+    return [parse_sheet_value(col, str(row.get(col, ""))) for col in ordered_columns]
 
 
 def batched(values: List[List[str]], size: int = 500) -> Iterable[List[List[str]]]:
