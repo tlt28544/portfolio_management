@@ -250,12 +250,13 @@ def derive_eodhd_symbol(exchange_code: str, product_code: str) -> str:
     if not exchange_code or not product_code:
         return ""
     if exchange_code == "USA":
+        product_code = product_code.replace("/", "-")
         return f"{product_code}.US"
     if exchange_code == "HKEX":
         digits = re.sub(r"\D", "", product_code)
         if not digits:
             return ""
-        return f"{int(digits)}.HK"
+        return f"{digits.zfill(4)}.HK"
     if exchange_code == "MAMK":
         return f"{product_code}.SH"
     if exchange_code == "SZMK":
@@ -336,11 +337,70 @@ def get_existing_price_tickers(sheets_service, spreadsheet_id: str) -> Set[str]:
     return {row[0].strip() for row in rows[1:] if row and row[0].strip()}
 
 
+def parse_float(value: str) -> Optional[float]:
+    if value is None:
+        return None
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def get_latest_raw_market_prices(sheets_service, spreadsheet_id: str) -> Dict[str, float]:
+    rows = get_values(sheets_service, spreadsheet_id, "Raw_Positions!A:ZZ")
+    if len(rows) <= 1:
+        return {}
+
+    header = [h.strip() for h in rows[0]]
+
+    def idx(name: str) -> Optional[int]:
+        return header.index(name) if name in header else None
+
+    asof_i = idx("asof_date")
+    exch_i = idx("exchange_code")
+    code_i = idx("product_code")
+    market_price_i = idx("market_price")
+
+    if asof_i is None or exch_i is None or code_i is None or market_price_i is None:
+        return {}
+
+    latest_asof = ""
+    for row in rows[1:]:
+        if asof_i < len(row):
+            asof = row[asof_i].strip()
+            if asof and asof > latest_asof:
+                latest_asof = asof
+
+    market_prices: Dict[str, float] = {}
+    for row in rows[1:]:
+        if not latest_asof or asof_i >= len(row) or row[asof_i].strip() != latest_asof:
+            continue
+
+        exchange_code = row[exch_i].strip() if exch_i < len(row) else ""
+        product_code = row[code_i].strip() if code_i < len(row) else ""
+        if not exchange_code or not product_code:
+            continue
+
+        raw_price = row[market_price_i] if market_price_i < len(row) else ""
+        market_price = parse_float(raw_price)
+        if market_price is None:
+            continue
+
+        ticker_key = build_ticker_key(exchange_code, product_code)
+        market_prices[ticker_key] = market_price
+
+    return market_prices
+
+
 def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> int:
     ensure_tab_header(sheets_service, spreadsheet_id, "Price", PRICE_COLUMNS)
 
     holdings_tickers = get_latest_holdings_tickers(sheets_service, spreadsheet_id)
     existing_tickers = get_existing_price_tickers(sheets_service, spreadsheet_id)
+    latest_raw_market_prices = get_latest_raw_market_prices(sheets_service, spreadsheet_id)
 
     utc_now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -351,6 +411,8 @@ def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> i
 
         symbol = derive_eodhd_symbol(exchange_code, product_code)
         price = fetch_eodhd_price(symbol, eodhd_token) if symbol and eodhd_token else None
+        if price is None:
+            price = latest_raw_market_prices.get(ticker_key)
         rows_to_append.append([
             ticker_key,
             exchange_code,

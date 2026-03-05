@@ -5,7 +5,7 @@ This repo includes a scheduled workflow at `.github/workflows/daily_sync.yml` th
 - appends new rows into `Raw_Positions` / `Raw_Trades` in Google Sheets,
 - waits for `Holdings_Normalized` formula recalculation,
 - detects new `ticker_key` (`exchange_code:product_code`) missing from `Price`,
-- appends only new rows to `Price` with derived `eodhd_symbol` and fetched latest price.
+- appends only new rows to `Price` with derived `eodhd_symbol` and fetched latest price (falling back to `Raw_Positions.market_price` when EODHD real-time is unavailable).
 
 Existing `Price` rows are never overwritten or reordered; manual `Strategy`/`Sector` columns remain intact.
 
