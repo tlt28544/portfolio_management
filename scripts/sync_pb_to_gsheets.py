@@ -337,6 +337,13 @@ def get_existing_price_tickers(sheets_service, spreadsheet_id: str) -> Set[str]:
     return {row[0].strip() for row in rows[1:] if row and row[0].strip()}
 
 
+def get_price_tab_rows(sheets_service, spreadsheet_id: str) -> List[List[str]]:
+    rows = get_values(sheets_service, spreadsheet_id, "Price!A:I")
+    if not rows:
+        return [PRICE_COLUMNS]
+    return rows
+
+
 def parse_float(value: str) -> Optional[float]:
     if value is None:
         return None
@@ -400,9 +407,19 @@ def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> i
 
     holdings_tickers = get_latest_holdings_tickers(sheets_service, spreadsheet_id)
     existing_tickers = get_existing_price_tickers(sheets_service, spreadsheet_id)
+    price_rows = get_price_tab_rows(sheets_service, spreadsheet_id)
     latest_raw_market_prices = get_latest_raw_market_prices(sheets_service, spreadsheet_id)
 
     utc_now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    holdings_by_ticker = {ticker_key: (exchange_code, product_code, product_name) for ticker_key, exchange_code, product_code, product_name in holdings_tickers}
+
+    existing_rows_by_ticker: Dict[str, List[str]] = {}
+    for row in price_rows[1:]:
+        padded = list(row) + [""] * (len(PRICE_COLUMNS) - len(row))
+        ticker_key = padded[0].strip()
+        if ticker_key:
+            existing_rows_by_ticker[ticker_key] = padded[: len(PRICE_COLUMNS)]
 
     rows_to_append: List[List[str]] = []
     for ticker_key, exchange_code, product_code, product_name in holdings_tickers:
@@ -425,12 +442,46 @@ def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> i
             "",
         ])
 
-    if not rows_to_append:
-        print("No new tickers to append to Price tab")
-        return 0
+    tracked_tickers = sorted(set(existing_rows_by_ticker.keys()) | set(holdings_by_ticker.keys()))
 
-    append_values(sheets_service, spreadsheet_id, "Price!A1", rows_to_append)
-    print(f"Price tab: appended {len(rows_to_append)} new ticker rows")
+    rows_to_update: List[List[str]] = [PRICE_COLUMNS]
+    for ticker_key in tracked_tickers:
+        existing_row = existing_rows_by_ticker.get(ticker_key, [""] * len(PRICE_COLUMNS))
+        exchange_code = existing_row[1].strip()
+        product_code = existing_row[2].strip()
+        product_name = existing_row[3].strip()
+        strategy = existing_row[7]
+        sector = existing_row[8]
+
+        holding = holdings_by_ticker.get(ticker_key)
+        if holding is not None:
+            exchange_code, product_code, product_name = holding
+
+        symbol = derive_eodhd_symbol(exchange_code, product_code)
+        price = fetch_eodhd_price(symbol, eodhd_token) if symbol and eodhd_token else None
+        if price is None:
+            price = latest_raw_market_prices.get(ticker_key)
+
+        rows_to_update.append([
+            ticker_key,
+            exchange_code,
+            product_code,
+            product_name,
+            symbol,
+            "" if price is None else price,
+            utc_now,
+            strategy,
+            sector,
+        ])
+
+    update_values(sheets_service, spreadsheet_id, f"Price!A1:I{len(rows_to_update)}", rows_to_update)
+
+    if rows_to_append:
+        print(f"Price tab: appended {len(rows_to_append)} new ticker rows")
+    else:
+        print("Price tab: no new tickers to append")
+
+    print(f"Price tab: refreshed prices for {len(tracked_tickers)} tickers")
     return len(rows_to_append)
 
 
