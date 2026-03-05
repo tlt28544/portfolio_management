@@ -1,4 +1,4 @@
-name: PB SFTP to Google Sheets
+name: Daily Portfolio Sync
 
 on:
   workflow_dispatch:
@@ -31,9 +31,14 @@ jobs:
           chmod 600 "$KEY_FILE"
           echo "PB_SFTP_KEY_PATH=$KEY_FILE" >> "$GITHUB_ENV"
 
-      - name: Run sync job
+      - name: Run daily sync pipeline
         env:
+          PB_SFTP_HOST_1: "118.143.128.100"
+          PB_SFTP_HOST_2: "202.82.167.228"
+          PB_SFTP_PORT: "22"
+          PB_SFTP_USER: "spring"
           PB_SFTP_KEY_PATH: ${{ env.PB_SFTP_KEY_PATH }}
           GSHEETS_SERVICE_ACCOUNT_JSON: ${{ secrets.GSHEETS_SERVICE_ACCOUNT_JSON }}
           GSHEETS_SPREADSHEET_ID: ${{ secrets.GSHEETS_SPREADSHEET_ID }}
-        run: python scripts/pb_sftp_to_sheets.py
+          EODHD_API_TOKEN: ${{ secrets.EODHD_API_TOKEN }}
+        run: python scripts/sync_pb_to_gsheets.py
