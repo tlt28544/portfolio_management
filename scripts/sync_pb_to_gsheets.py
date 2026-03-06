@@ -272,6 +272,13 @@ def build_ticker_key(exchange_code: str, product_code: str) -> str:
     return f"{exchange_code}:{product_code}"
 
 
+def normalize_hkex_product_code(product_code: str) -> str:
+    digits = re.sub(r"\D", "", product_code or "")
+    if not digits:
+        return ""
+    return str(int(digits)).zfill(4) if int(digits) != 0 else "0000"
+
+
 def derive_eodhd_symbol(exchange_code: str, product_code: str) -> str:
     exchange_code = (exchange_code or "").strip().upper()
     product_code = (product_code or "").strip().upper()
@@ -282,10 +289,10 @@ def derive_eodhd_symbol(exchange_code: str, product_code: str) -> str:
         product_code = product_code.replace("/", "-")
         return f"{product_code}.US"
     if exchange_code == "HKEX":
-        digits = re.sub(r"\D", "", product_code)
-        if not digits:
+        normalized_code = normalize_hkex_product_code(product_code)
+        if not normalized_code:
             return ""
-        return f"{digits.zfill(4)}.HK"
+        return f"{normalized_code}.HK"
     if exchange_code == "MAMK":
         return f"{product_code}.SH"
     if exchange_code == "SZMK":
@@ -385,6 +392,33 @@ def parse_float(value: str) -> Optional[float]:
         return None
 
 
+def build_ticker_key_variants(exchange_code: str, product_code: str) -> List[str]:
+    exchange_code = (exchange_code or "").strip()
+    product_code = (product_code or "").strip()
+    base_key = build_ticker_key(exchange_code, product_code)
+
+    variants = [base_key]
+    if exchange_code.upper() == "HKEX":
+        normalized_code = normalize_hkex_product_code(product_code)
+        if normalized_code:
+            normalized_key = build_ticker_key(exchange_code, normalized_code)
+            if normalized_key not in variants:
+                variants.append(normalized_key)
+    return variants
+
+
+def get_latest_price_with_fallback(
+    latest_raw_market_prices: Dict[str, float],
+    exchange_code: str,
+    product_code: str,
+) -> Optional[float]:
+    for key in build_ticker_key_variants(exchange_code, product_code):
+        price = latest_raw_market_prices.get(key)
+        if price is not None:
+            return price
+    return None
+
+
 def get_latest_raw_market_prices(sheets_service, spreadsheet_id: str) -> Dict[str, float]:
     rows = get_values(sheets_service, spreadsheet_id, "Raw_Positions!A:ZZ")
     if len(rows) <= 1:
@@ -425,8 +459,8 @@ def get_latest_raw_market_prices(sheets_service, spreadsheet_id: str) -> Dict[st
         if market_price is None:
             continue
 
-        ticker_key = build_ticker_key(exchange_code, product_code)
-        market_prices[ticker_key] = market_price
+        for ticker_key in build_ticker_key_variants(exchange_code, product_code):
+            market_prices[ticker_key] = market_price
 
     return market_prices
 
@@ -458,7 +492,7 @@ def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> i
         symbol = derive_eodhd_symbol(exchange_code, product_code)
         price = fetch_eodhd_price(symbol, eodhd_token) if symbol and eodhd_token else None
         if price is None:
-            price = latest_raw_market_prices.get(ticker_key)
+            price = get_latest_price_with_fallback(latest_raw_market_prices, exchange_code, product_code)
         rows_to_append.append([
             ticker_key,
             exchange_code,
@@ -489,7 +523,7 @@ def enrich_price_tab(sheets_service, spreadsheet_id: str, eodhd_token: str) -> i
         symbol = derive_eodhd_symbol(exchange_code, product_code)
         price = fetch_eodhd_price(symbol, eodhd_token) if symbol and eodhd_token else None
         if price is None:
-            price = latest_raw_market_prices.get(ticker_key)
+            price = get_latest_price_with_fallback(latest_raw_market_prices, exchange_code, product_code)
 
         rows_to_update.append([
             ticker_key,
