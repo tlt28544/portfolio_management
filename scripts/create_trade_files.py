@@ -2,7 +2,7 @@
 import json
 import os
 import re
-from copy import copy
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -111,24 +111,32 @@ def get_raw_trades_rows(
     raise RuntimeError("No rows found in either 'Raw_Trades' or 'Raw Trades' tab")
 
 
-def market_suffix(exchange_code: str) -> str:
-    mapping = {
-        "HKEX": "HK",
-        "SZMK": "CN",
-        "SHMK": "CN",
-        "SSE": "CN",
-        "SZSE": "CN",
-        "NYSE": "US",
-        "NASDAQ": "US",
-        "AMEX": "US",
-        "TSE": "JP",
-        "TOSE": "JP",
-        "JPX": "JP",
-        "KRX": "KS",
-        "KOSPI": "KS",
-        "KOSDAQ": "KS",
-    }
-    return mapping.get((exchange_code or "").strip().upper(), "")
+def format_investment_code(exchange_code: str, product_code: str) -> str:
+    exchange_code = (exchange_code or "").strip().upper()
+    product_code = (product_code or "").strip()
+
+    if not product_code:
+        return ""
+
+    if exchange_code == "HKEX":
+        normalized_code = product_code
+        if normalized_code.startswith("0") and len(normalized_code) == 5:
+            normalized_code = normalized_code[1:]
+        return f"{normalized_code}.HK"
+
+    if exchange_code in {"SZMK", "SHMK", "SSE", "SZSE", "MAMK"}:
+        return f"{product_code} CH"
+
+    if exchange_code in {"NYSE", "NASDAQ", "AMEX", "USA"}:
+        return f"{product_code} US"
+
+    if exchange_code in {"KRX", "KOSPI", "KOSDAQ", "KRW"}:
+        return f"{product_code} KS"
+
+    if exchange_code in {"TSE", "TOSE", "JPX", "JPY"}:
+        return f"{product_code} JP"
+
+    return product_code
 
 
 def to_float(raw: str) -> float:
@@ -138,32 +146,9 @@ def to_float(raw: str) -> float:
     return float(raw)
 
 
-def copy_first_row_style(template_path: Path, output_path: Path) -> None:
-    wb = load_workbook(template_path)
-    ws = wb.active
-
-    for col in range(1, 32):  # A..AE
-        src = ws.cell(row=1, column=col)
-        dst = ws.cell(row=2, column=col)
-        if src.has_style:
-            dst._style = copy(src._style)
-        if src.number_format:
-            dst.number_format = src.number_format
-        if src.font:
-            dst.font = copy(src.font)
-        if src.fill:
-            dst.fill = copy(src.fill)
-        if src.border:
-            dst.border = copy(src.border)
-        if src.alignment:
-            dst.alignment = copy(src.alignment)
-
-    wb.save(output_path)
-
-
 def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict[str, str]], trade_date: datetime.date) -> None:
     if not output_path.exists():
-        copy_first_row_style(template_path, output_path)
+        shutil.copyfile(template_path, output_path)
 
     wb = load_workbook(output_path)
     ws = wb.active
@@ -171,9 +156,9 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
     for idx, row in enumerate(rows, start=2):
         t_date = parse_date(row.get("trade_date", ""))
         s_date = parse_date(row.get("settle_date", ""))
-        suffix = market_suffix(row.get("exchange_code", ""))
+        exchange_code = row.get("exchange_code", "")
         product_code = (row.get("product_code") or "").strip()
-        investment_code = f"{product_code} {suffix}".strip()
+        investment_code = format_investment_code(exchange_code, product_code)
 
         bs_type = (row.get("bs_type") or "").strip().upper()
         if bs_type == "B":
