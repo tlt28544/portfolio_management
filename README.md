@@ -35,3 +35,16 @@ python scripts/sync_pb_to_gsheets.py
 
 ### Google Sheets access
 Share the target spreadsheet with the service account email (`client_email` inside `GSHEETS_SERVICE_ACCOUNT_JSON`) and grant **Editor** access.
+
+## Trade File Generator Pipeline
+
+This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw Trades` (`Raw_Trades` fallback) using `Blank Template.xlsx`.
+
+Generation rules:
+- scans latest local file date from `Trade Files/SpringGate-TRADE-YYYYMMDD.xlsx` (or `main/Trade Files` if present),
+- reads `trade_date` from Raw Trades and generates missing dates only (`latest local + 1` to `latest raw trade date`),
+- fills columns `A:AE` on `TRADE` sheet per mapping defaults (Portfolio/Fund/CMSHK/etc.) and keeps row 1 header,
+- writes output as `SpringGate-TRADE-YYYYMMDD.xlsx` under the Trade Files directory.
+
+### Additional requirement
+- `openpyxl` (already listed in `requirements.txt`).
