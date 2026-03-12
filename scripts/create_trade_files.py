@@ -3,12 +3,14 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from openpyxl import load_workbook
 
 PORTFOLIO_DEFAULT = "759668"
@@ -36,6 +38,15 @@ def get_sheets_service(service_account_json: str):
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
     )
     return build("sheets", "v4", credentials=credentials, cache_discovery=False)
+
+
+def get_drive_service(service_account_json: str):
+    credentials_info = json.loads(service_account_json)
+    credentials = service_account.Credentials.from_service_account_info(
+        credentials_info,
+        scopes=["https://www.googleapis.com/auth/drive"],
+    )
+    return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
 def get_values(sheets_service, spreadsheet_id: str, cell_range: str) -> List[List[str]]:
@@ -67,28 +78,72 @@ def choose_existing(*candidates: Path) -> Path:
     raise FileNotFoundError(f"None of the candidate paths exists: {[str(p) for p in candidates]}")
 
 
-def choose_existing_or_default(default_path: Path, *candidates: Path) -> Path:
-    for path in candidates:
-        if path.exists():
-            return path
-    return default_path
+
+def list_drive_trade_files(drive_service, folder_id: str) -> List[Dict[str, str]]:
+    files: List[Dict[str, str]] = []
+    page_token: Optional[str] = None
+    while True:
+        response = (
+            drive_service.files()
+            .list(
+                q=(
+                    f"'{folder_id}' in parents and trashed = false "
+                    "and mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
+                ),
+                fields="nextPageToken, files(id, name)",
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+        files.extend(response.get("files", []))
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+    return files
 
 
-def detect_latest_local_trade_date(trade_files_dir: Path) -> Optional[datetime.date]:
+def detect_latest_drive_trade_date(drive_files: Sequence[Dict[str, str]]) -> Optional[datetime.date]:
     latest: Optional[datetime.date] = None
-    if not trade_files_dir.exists():
-        return None
-
-    for entry in trade_files_dir.iterdir():
-        if not entry.is_file():
-            continue
-        match = ASOF_RE.match(entry.name)
+    for file_info in drive_files:
+        match = ASOF_RE.match(file_info.get("name", ""))
         if not match:
             continue
         date_value = datetime.strptime(match.group(1), "%Y%m%d").date()
         if latest is None or date_value > latest:
             latest = date_value
     return latest
+
+
+def upload_trade_file(drive_service, folder_id: str, local_path: Path, filename: str, existing_files: Sequence[Dict[str, str]]) -> None:
+    media = MediaFileUpload(
+        str(local_path),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        resumable=False,
+    )
+    matched = [f for f in existing_files if f.get("name") == filename]
+    if matched:
+        file_id = matched[0]["id"]
+        (
+            drive_service.files()
+            .update(fileId=file_id, media_body=media, supportsAllDrives=True)
+            .execute()
+        )
+        print(f"Updated on Drive: {filename} (id={file_id})")
+        return
+
+    metadata = {
+        "name": filename,
+        "parents": [folder_id],
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    created = (
+        drive_service.files()
+        .create(body=metadata, media_body=media, fields="id", supportsAllDrives=True)
+        .execute()
+    )
+    print(f"Uploaded to Drive: {filename} (id={created.get('id')})")
 
 
 def get_raw_trades_rows(
@@ -220,17 +275,13 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
 def main() -> None:
     spreadsheet_id = os.environ["GSHEETS_SPREADSHEET_ID"]
     service_account_json = os.environ["GSHEETS_SERVICE_ACCOUNT_JSON"]
+    drive_folder_id = os.environ["GDRIVE_TRADE_FILES_FOLDER_ID"]
 
     repo_root = Path(__file__).resolve().parent.parent
     template_path = choose_existing(repo_root / "main" / "Blank Template.xlsx", repo_root / "Blank Template.xlsx")
-    trade_files_dir = choose_existing_or_default(
-        repo_root / "Trade Files",
-        repo_root / "main" / "Trade Files",
-        repo_root / "Trade Files",
-    )
-    trade_files_dir.mkdir(parents=True, exist_ok=True)
 
     sheets = get_sheets_service(service_account_json)
+    drive = get_drive_service(service_account_json)
     header, raw_rows, source_tab = get_raw_trades_rows(sheets, spreadsheet_id)
     required = [
         "trade_date",
@@ -264,7 +315,8 @@ def main() -> None:
         print("No raw trade rows found. Nothing to generate.")
         return
 
-    local_latest = detect_latest_local_trade_date(trade_files_dir)
+    drive_files = list_drive_trade_files(drive, drive_folder_id)
+    local_latest = detect_latest_drive_trade_date(drive_files)
     remote_latest = max(grouped.keys())
 
     if local_latest is None:
@@ -278,21 +330,26 @@ def main() -> None:
         return
 
     print(f"Generating trade files for dates: {[d.isoformat() for d in target_dates]}")
+    print(f"Drive folder currently has {len(drive_files)} xlsx files.")
 
-    for t_date in target_dates:
-        records = grouped[t_date]
-        records_sorted = sorted(
-            records,
-            key=lambda r: (
-                parse_date(r.get("trade_date", "")).isoformat(),
-                (r.get("ref_no") or "").strip(),
-                int((r.get("row_no") or "0").strip() or 0),
-            ),
-        )
-        output_name = f"SpringGate-TRADE-{t_date:%Y%m%d}.xlsx"
-        output_path = trade_files_dir / output_name
-        write_trade_file(template_path, output_path, records_sorted, t_date)
-        print(f"Created: {output_path}")
+    with tempfile.TemporaryDirectory(prefix="trade-files-") as temp_dir:
+        temp_path = Path(temp_dir)
+        for t_date in target_dates:
+            records = grouped[t_date]
+            records_sorted = sorted(
+                records,
+                key=lambda r: (
+                    parse_date(r.get("trade_date", "")).isoformat(),
+                    (r.get("ref_no") or "").strip(),
+                    int((r.get("row_no") or "0").strip() or 0),
+                ),
+            )
+            output_name = f"SpringGate-TRADE-{t_date:%Y%m%d}.xlsx"
+            output_path = temp_path / output_name
+            write_trade_file(template_path, output_path, records_sorted, t_date)
+            upload_trade_file(drive, drive_folder_id, output_path, output_name, drive_files)
+            drive_files = [f for f in drive_files if f.get("name") != output_name]
+            drive_files.append({"name": output_name, "id": "uploaded"})
 
 
 if __name__ == "__main__":
