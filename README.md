@@ -38,7 +38,7 @@ Share the target spreadsheet with the service account email (`client_email` insi
 
 ## Trade File Generator Pipeline
 
-This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw Trades` (`Raw_Trades` fallback) using `Blank Template.xlsx`.
+This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw_Trades` (`Raw Trades` fallback) using `Blank Template.xlsx`.
 
 Generation rules:
 - scans latest local file date from `Trade Files/SpringGate-TRADE-YYYYMMDD.xlsx` (or `main/Trade Files` if present),

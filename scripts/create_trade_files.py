@@ -95,7 +95,7 @@ def get_raw_trades_rows(
     sheets_service,
     spreadsheet_id: str,
 ) -> Tuple[List[str], List[Dict[str, str]], str]:
-    for tab in ("Raw Trades", "Raw_Trades"):
+    for tab in ("Raw_Trades", "Raw Trades"):
         rows = get_values(sheets_service, spreadsheet_id, f"{tab}!A:AZ")
         if not rows:
             continue
@@ -108,7 +108,7 @@ def get_raw_trades_rows(
             record = {header[i]: row[i] if i < len(row) else "" for i in range(len(header))}
             dict_rows.append(record)
         return header, dict_rows, tab
-    raise RuntimeError("No rows found in either 'Raw Trades' or 'Raw_Trades' tab")
+    raise RuntimeError("No rows found in either 'Raw_Trades' or 'Raw Trades' tab")
 
 
 def market_suffix(exchange_code: str) -> str:
