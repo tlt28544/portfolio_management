@@ -8,6 +8,8 @@ on:
 jobs:
   create-trade-files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +29,26 @@ jobs:
           GSHEETS_SERVICE_ACCOUNT_JSON: ${{ secrets.GSHEETS_SERVICE_ACCOUNT_JSON }}
           GSHEETS_SPREADSHEET_ID: ${{ secrets.GSHEETS_SPREADSHEET_ID }}
         run: python scripts/create_trade_files.py
+
+
+      - name: Commit and push generated trade files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for d in "Trade Files" "main/Trade Files"; do
+            if [ -d "$d" ]; then
+              git add -A -- "$d"
+            fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "No trade file changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: update generated trade files"
+          git push
 
       - name: Upload generated trade files artifact
         uses: actions/upload-artifact@v4
