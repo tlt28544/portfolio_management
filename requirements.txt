@@ -2,6 +2,7 @@ paramiko
 pandas
 google-api-python-client
 google-auth
+google-cloud-storage
 requests
 
 openpyxl

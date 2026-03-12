@@ -41,11 +41,14 @@ Share the target spreadsheet with the service account email (`client_email` insi
 This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw_Trades` (`Raw Trades` fallback) using `Blank Template.xlsx`.
 
 Generation rules:
-- scans latest existing file date from Google Drive folder `Trade Files` (`SpringGate-TRADE-YYYYMMDD.xlsx`),
+- scans latest existing file date from Google Cloud Storage bucket objects (`SpringGate-TRADE-YYYYMMDD.xlsx`),
 - reads `trade_date` from `Raw_Trades` (`Raw Trades` fallback) and generates missing dates only (`latest local + 1` to `latest raw trade date`),
 - fills columns `A:AE` on `TRADE` sheet per mapping defaults (Portfolio/Fund/CMSHK/etc.) and keeps row 1 header,
-- uploads output as `SpringGate-TRADE-YYYYMMDD.xlsx` into the shared Google Drive folder.
+- uploads output as `SpringGate-TRADE-YYYYMMDD.xlsx` into the configured GCS bucket/prefix.
 
 ### Additional requirement
-- `openpyxl` (already listed in `requirements.txt`).
-- GitHub secret `GDRIVE_TRADE_FILES_FOLDER_ID`: Google Drive folder ID for the shared `Trade Files` folder.
+- `openpyxl` and `google-cloud-storage` (already listed in `requirements.txt`).
+- GitHub secret `GCS_TRADE_FILES_BUCKET`: target GCS bucket name for `Trade Files`.
+- Optional GitHub secret `GCS_TRADE_FILES_PREFIX`: object prefix (folder path) inside the bucket.
+
+> The workflow continues using `GSHEETS_SERVICE_ACCOUNT_JSON`; grant this same service account write access to the target GCS bucket (e.g., `Storage Object Admin`).
