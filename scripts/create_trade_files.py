@@ -153,7 +153,7 @@ def format_investment_code(exchange_code: str, product_code: str) -> str:
         return f"{product_code} US"
 
     if exchange_code in {"KRX", "KOSPI", "KOSDAQ", "KRW"}:
-        normalized_code = product_code.upper().replace(".KS", "").replace(" KS", "")
+        normalized_code = re.sub(r"(?:\.|\s)?KS$", "", product_code.upper())
         return f"{normalized_code} KS"
 
     if exchange_code in {"TSE", "TOSE", "JPX", "JPY"}:
