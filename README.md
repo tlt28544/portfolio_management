@@ -38,13 +38,14 @@ Share the target spreadsheet with the service account email (`client_email` insi
 
 ## Trade File Generator Pipeline
 
-This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw Trades` (`Raw_Trades` fallback) using `Blank Template.xlsx`.
+This repo also includes `.github/workflows/create_trade_files.yml` to generate trade files from Google Sheets `Raw_Trades` (`Raw Trades` fallback) using `Blank Template.xlsx`.
 
 Generation rules:
 - scans latest local file date from `Trade Files/SpringGate-TRADE-YYYYMMDD.xlsx` (or `main/Trade Files` if present),
-- reads `trade_date` from Raw Trades and generates missing dates only (`latest local + 1` to `latest raw trade date`),
+- reads `trade_date` from `Raw_Trades` (`Raw Trades` fallback) and generates missing dates only (`latest local + 1` to `latest raw trade date`),
 - fills columns `A:AE` on `TRADE` sheet per mapping defaults (Portfolio/Fund/CMSHK/etc.) and keeps row 1 header,
 - writes output as `SpringGate-TRADE-YYYYMMDD.xlsx` under the Trade Files directory.
+- commits newly generated files back to the repository (`Trade Files/` or `main/Trade Files/`) so they are visible in GitHub, and also uploads them as an Actions artifact.
 
 ### Additional requirement
 - `openpyxl` (already listed in `requirements.txt`).
