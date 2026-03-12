@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from stat import S_ISDIR
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
@@ -211,6 +211,27 @@ def download_and_prepare_rows(
 ) -> Tuple[List[List[str]], int]:
     all_rows: List[List[str]] = []
     skipped_files = 0
+    skipped_rows = 0
+
+    def normalize_input_date(raw_input_date: str) -> Optional[str]:
+        value = (raw_input_date or "").strip()
+        if not value:
+            return None
+
+        candidate = value.split(" ")[0]
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%Y%m%d"):
+            try:
+                parsed = datetime.strptime(candidate, fmt).date()
+                return parsed.strftime("%Y%m%d")
+            except ValueError:
+                continue
+
+        try:
+            parsed_iso = date.fromisoformat(candidate)
+            return parsed_iso.strftime("%Y%m%d")
+        except ValueError:
+            return None
+
     for filename in filenames:
         key = (asof_date, filename)
         if key in existing_keys:
@@ -230,8 +251,17 @@ def download_and_prepare_rows(
                     f"Unexpected CSV header in {filename}.\nExpected: {expected_columns}\nActual: {reader.fieldnames}"
                 )
             for row in reader:
+                if target_tab == "Raw_Trades":
+                    normalized_input_date = normalize_input_date(row.get("input_date", ""))
+                    if normalized_input_date and normalized_input_date != asof_date:
+                        skipped_rows += 1
+                        continue
+
                 account_no = parse_account_no(row, filename)
                 all_rows.append([asof_date, account_no, filename, *normalize_row(row, expected_columns)])
+
+    if skipped_rows:
+        print(f"{target_tab}: skipped_rows_due_to_input_date_mismatch={skipped_rows}")
 
     return all_rows, skipped_files
 
