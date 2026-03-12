@@ -139,10 +139,12 @@ def format_investment_code(exchange_code: str, product_code: str) -> str:
         return ""
 
     if exchange_code == "HKEX":
-        normalized_code = product_code
-        if normalized_code.startswith("0") and len(normalized_code) == 5:
-            normalized_code = normalized_code[1:]
-        return f"{normalized_code}.HK"
+        normalized_code = product_code.upper().replace(".HK", "").replace(" HK", "")
+        if normalized_code.isdigit():
+            if len(normalized_code) == 5 and normalized_code.startswith("0"):
+                normalized_code = normalized_code[1:]
+            normalized_code = normalized_code.zfill(4)
+        return f"{normalized_code} HK"
 
     if exchange_code in {"SZMK", "SHMK", "SSE", "SZSE", "MAMK"}:
         return f"{product_code} CH"
@@ -151,7 +153,8 @@ def format_investment_code(exchange_code: str, product_code: str) -> str:
         return f"{product_code} US"
 
     if exchange_code in {"KRX", "KOSPI", "KOSDAQ", "KRW"}:
-        return f"{product_code} KS"
+        normalized_code = product_code.upper().replace(".KS", "").replace(" KS", "")
+        return f"{normalized_code} KS"
 
     if exchange_code in {"TSE", "TOSE", "JPX", "JPY"}:
         return f"{product_code} JP"
