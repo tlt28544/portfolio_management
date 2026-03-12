@@ -28,5 +28,6 @@ jobs:
         env:
           GSHEETS_SERVICE_ACCOUNT_JSON: ${{ secrets.GSHEETS_SERVICE_ACCOUNT_JSON }}
           GSHEETS_SPREADSHEET_ID: ${{ secrets.GSHEETS_SPREADSHEET_ID }}
-          GDRIVE_TRADE_FILES_FOLDER_ID: ${{ secrets.GDRIVE_TRADE_FILES_FOLDER_ID }}
+          GCS_TRADE_FILES_BUCKET: ${{ secrets.GCS_TRADE_FILES_BUCKET }}
+          GCS_TRADE_FILES_PREFIX: ${{ secrets.GCS_TRADE_FILES_PREFIX }}
         run: python scripts/create_trade_files.py
