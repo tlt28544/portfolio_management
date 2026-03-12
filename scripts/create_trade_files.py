@@ -154,8 +154,6 @@ def format_investment_code(exchange_code: str, product_code: str) -> str:
 
     if exchange_code in {"KRX", "KOSPI", "KOSDAQ", "KRW"}:
         normalized_code = product_code.upper().replace(".KS", "").replace(" KS", "")
-        if normalized_code.endswith("KS"):
-            normalized_code = normalized_code[:-2]
         return f"{normalized_code} KS"
 
     if exchange_code in {"TSE", "TOSE", "JPX", "JPY"}:
