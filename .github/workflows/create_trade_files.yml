@@ -1,0 +1,38 @@
+name: Create Trade Files
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 1 * * *"
+
+jobs:
+  create-trade-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate trade files from Raw Trades
+        env:
+          GSHEETS_SERVICE_ACCOUNT_JSON: ${{ secrets.GSHEETS_SERVICE_ACCOUNT_JSON }}
+          GSHEETS_SPREADSHEET_ID: ${{ secrets.GSHEETS_SPREADSHEET_ID }}
+        run: python scripts/create_trade_files.py
+
+      - name: Upload generated trade files artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-files
+          path: |
+            main/Trade Files/*.xlsx
+            Trade Files/*.xlsx
+          if-no-files-found: warn
