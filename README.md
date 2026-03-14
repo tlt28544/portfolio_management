@@ -52,3 +52,34 @@ Generation rules:
 - Optional GitHub secret `GCS_TRADE_FILES_PREFIX`: object prefix (folder path) inside the bucket.
 
 > The workflow continues using `GSHEETS_SERVICE_ACCOUNT_JSON`; grant this same service account write access to the target GCS bucket (e.g., `Storage Object Admin`).
+
+## Portfolio Intelligence Workflow
+
+This repo now includes `.github/workflows/portfolio_intelligence.yml`, scheduled daily at **01:15 UTC (09:15 SGT)**.
+
+It runs `scripts/portfolio_intelligence.py` to:
+- read holdings from Google Sheets tab `Dashboard_data`,
+- clean/normalize holdings and compute snapshot metrics,
+- compute concentration, market/sector exposures, and beta/alpha blocks using EODHD historical prices,
+- generate PM-facing commentary and PM questions via OpenAI,
+- send an HTML email report titled `Portfolio Intelligence | YYYY-MM-DD`.
+
+### Required GitHub Secrets
+- `GSHEETS_SERVICE_ACCOUNT_JSON`
+- `GSHEETS_SPREADSHEET_ID`
+- `EODHD_API_TOKEN`
+- `OPENAI_API_KEY`
+- `PORTFOLIO_INTELLIGENCE_EMAIL_LIST` (comma-separated recipients)
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+
+### Optional GitHub Secrets
+- `SMTP_HOST` (default `smtp.gmail.com`)
+- `SMTP_PORT` (default `587`)
+- `SMTP_SENDER` (default `SMTP_USERNAME`)
+- `PORTFOLIO_INTELLIGENCE_OPENAI_MODEL` (default `gpt-5.2`)
+- benchmark overrides:
+  - `PORTFOLIO_INTELLIGENCE_SPX_TICKER`
+  - `PORTFOLIO_INTELLIGENCE_NDX_TICKER`
+  - `PORTFOLIO_INTELLIGENCE_HSI_TICKER`
+  - `PORTFOLIO_INTELLIGENCE_HSTECH_TICKER`
