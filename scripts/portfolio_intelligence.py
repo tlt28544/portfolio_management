@@ -396,7 +396,7 @@ def send_email_smtp(subject: str, html_body: str) -> None:
         raise RuntimeError("PORTFOLIO_INTELLIGENCE_EMAIL_LIST is empty")
 
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_port = int(os.getenv("SMTP_PORT", "465"))
     smtp_username = os.environ["SMTP_USERNAME"]
     smtp_password = os.environ["SMTP_PASSWORD"]
     sender = os.getenv("SMTP_SENDER", smtp_username)
@@ -407,10 +407,15 @@ def send_email_smtp(subject: str, html_body: str) -> None:
     msg["To"] = ", ".join(recipients)
     msg.attach(MIMEText(html_body, "html"))
 
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-        server.starttls()
-        server.login(smtp_username, smtp_password)
-        server.sendmail(sender, recipients, msg.as_string())
+    if smtp_port == 465:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30) as server:
+            server.login(smtp_username, smtp_password)
+            server.sendmail(sender, recipients, msg.as_string())
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.sendmail(sender, recipients, msg.as_string())
 
 
 def compute_snapshot_metrics(holdings: pd.DataFrame) -> Dict[str, str]:
