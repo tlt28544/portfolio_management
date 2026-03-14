@@ -379,8 +379,8 @@ def build_llm_prompt_for_observations(
     return (
         "You are preparing a buy-side PM-facing portfolio note. English only, concise, no fluff, no exaggerated certainty. "
         "Provide 5-8 bullet points total covering key observations, hidden bets, and risk flags. "
-        "Each bullet must be a single direct sentence and must NOT start with labels like 'Key observation:', "
-        "'Hidden bet:', or 'Risk flag:'.\n\n"
+        "Each bullet must use this exact pattern: **Short headline sentence.** Follow with one plain-text explanatory sentence. "
+        "Headlines can start with labels such as 'Key observation:', 'Hidden bet:', or 'Risk flag:' when appropriate.\n\n"
         f"Top holdings: {top10_holdings}\n"
         f"Market exposure: {market_exposure}\n"
         f"Sector exposure: {sector_exposure}\n"
@@ -416,38 +416,34 @@ def render_email_html(
     key_observations: str,
     pm_questions: str,
 ) -> str:
-    table_rows = "\n".join([f"<tr><td><b>{k}</b></td><td>{v}</td></tr>" for k, v in snapshot_rows])
+    table_rows = "\n".join([f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in snapshot_rows])
 
-    def to_html_list(text: str, ordered: bool = False, bold_items: bool = False) -> str:
+    def to_html_list(text: str, ordered: bool = False) -> str:
         lines = []
         for raw in text.splitlines():
             cleaned = raw.strip()
             if not cleaned:
                 continue
             cleaned = re.sub(r"^(?:[-•]|\d+\.)\s*", "", cleaned)
-            cleaned = re.sub(r"^\*\*(.+?)\*\*$", r"\1", cleaned)
+            cleaned = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", cleaned)
             lines.append(cleaned)
         if not lines:
             return "<p>N/A</p>"
         tag = "ol" if ordered else "ul"
-        if bold_items:
-            items = "".join([f"<li><b>{ln}</b></li>" for ln in lines])
-        else:
-            items = "".join([f"<li>{ln}</li>" for ln in lines])
+        items = "".join([f"<li>{ln}</li>" for ln in lines])
         return f"<{tag}>" + items + f"</{tag}>"
 
     return f"""
     <html>
       <body style=\"font-family: Arial, sans-serif; font-size: 14px; color: #222;\">
-        <h2>Portfolio Intelligence | {asof_date}</h2>
         <h3>1. Portfolio Snapshot</h3>
         <table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse: collapse;\">
-          <tr><th align=\"left\">Item</th><th align=\"left\">Value</th></tr>
+          <tr><th align=\"left\" style=\"width: 280px;\">Item</th><th align=\"left\">Value</th></tr>
           {table_rows}
         </table>
 
         <h3>2. Key Observations</h3>
-        {to_html_list(key_observations, bold_items=True)}
+        {to_html_list(key_observations)}
 
         <h3>3. Questions for PM</h3>
         {to_html_list(pm_questions, ordered=True)}
