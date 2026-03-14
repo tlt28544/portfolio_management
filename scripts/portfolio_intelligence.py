@@ -293,20 +293,71 @@ def call_openai(prompt: str, fallback: str) -> str:
         logging.warning("OPENAI_API_KEY not set; using fallback text")
         return fallback
 
-    url = f"{OPENAI_BASE_URL.rstrip('/')}/responses"
-    payload = {
-        "model": OPENAI_MODEL,
-        "input": prompt,
-    }
+    base_url = OPENAI_BASE_URL.rstrip("/")
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    try:
+
+    def _extract_text(data: Dict) -> str:
+        output_text = str(data.get("output_text", "")).strip()
+        if output_text:
+            return output_text
+
+        output = data.get("output")
+        if isinstance(output, list):
+            chunks: List[str] = []
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    text_value = block.get("text")
+                    if isinstance(text_value, str) and text_value.strip():
+                        chunks.append(text_value.strip())
+            if chunks:
+                return "\n".join(chunks)
+
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message", {})
+            if isinstance(message, dict):
+                content = message.get("content", "")
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+        return ""
+
+    def _post_and_parse(url: str, payload: Dict) -> str:
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            logging.warning(
+                "OpenAI call failed (%s) at %s, body=%s",
+                resp.status_code,
+                url,
+                resp.text[:600],
+            )
+            resp.raise_for_status()
         data = resp.json()
-        text = data.get("output_text", "").strip()
+        return _extract_text(data)
+
+    try:
+        responses_payload = {
+            "model": OPENAI_MODEL,
+            "input": prompt,
+        }
+        text = _post_and_parse(f"{base_url}/responses", responses_payload)
+        if text:
+            return text
+
+        chat_payload = {
+            "model": OPENAI_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        text = _post_and_parse(f"{base_url}/chat/completions", chat_payload)
         return text if text else fallback
     except Exception as exc:
         logging.warning("OpenAI call failed: %s", exc)
