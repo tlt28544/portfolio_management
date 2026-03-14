@@ -396,7 +396,8 @@ def send_email_smtp(subject: str, html_body: str) -> None:
         raise RuntimeError("PORTFOLIO_INTELLIGENCE_EMAIL_LIST is empty")
 
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "465"))
+    smtp_port_raw = os.getenv("SMTP_PORT", "465")
+    smtp_port = int(smtp_port_raw.strip() or "465")
     smtp_username = os.environ["SMTP_USERNAME"]
     smtp_password = os.environ["SMTP_PASSWORD"]
     sender = os.getenv("SMTP_SENDER", smtp_username)
