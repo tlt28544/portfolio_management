@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import re
 import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -377,7 +378,9 @@ def build_llm_prompt_for_observations(
     ].to_dict(orient="records")
     return (
         "You are preparing a buy-side PM-facing portfolio note. English only, concise, no fluff, no exaggerated certainty. "
-        "Provide 5-10 bullet points total covering: key observations, hidden bets, and risk flags.\n\n"
+        "Provide 5-8 bullet points total covering key observations, hidden bets, and risk flags. "
+        "Each bullet must be a single direct sentence and must NOT start with labels like 'Key observation:', "
+        "'Hidden bet:', or 'Risk flag:'.\n\n"
         f"Top holdings: {top10_holdings}\n"
         f"Market exposure: {market_exposure}\n"
         f"Sector exposure: {sector_exposure}\n"
@@ -397,8 +400,9 @@ def build_llm_prompt_for_pm_questions(
         ["Company", "Sector", "Exchange", "calc_weight"]
     ].to_dict(orient="records")
     return (
-        "Generate 3-6 PM questions specific to this portfolio. English only. Focus on sizing, concentration, diversification, "
-        "hidden factor overlap, sleeve intentionality, and fit versus intended book. Bullet points only.\n\n"
+        "Generate exactly 5 PM questions specific to this portfolio. English only. "
+        "Output MUST be numbered as 1., 2., 3., 4., 5. (one question per line). "
+        "Each question must be one concise and direct sentence with no preamble or explanation.\n\n"
         f"Market exposure: {market_exposure}\n"
         f"Sector exposure: {sector_exposure}\n"
         f"Beta/alpha metrics: {beta_alpha_metrics}\n"
@@ -414,11 +418,23 @@ def render_email_html(
 ) -> str:
     table_rows = "\n".join([f"<tr><td><b>{k}</b></td><td>{v}</td></tr>" for k, v in snapshot_rows])
 
-    def to_html_list(text: str) -> str:
-        lines = [ln.strip(" -•\t") for ln in text.splitlines() if ln.strip()]
+    def to_html_list(text: str, ordered: bool = False, bold_items: bool = False) -> str:
+        lines = []
+        for raw in text.splitlines():
+            cleaned = raw.strip()
+            if not cleaned:
+                continue
+            cleaned = re.sub(r"^(?:[-•]|\d+\.)\s*", "", cleaned)
+            cleaned = re.sub(r"^\*\*(.+?)\*\*$", r"\1", cleaned)
+            lines.append(cleaned)
         if not lines:
             return "<p>N/A</p>"
-        return "<ul>" + "".join([f"<li>{ln}</li>" for ln in lines]) + "</ul>"
+        tag = "ol" if ordered else "ul"
+        if bold_items:
+            items = "".join([f"<li><b>{ln}</b></li>" for ln in lines])
+        else:
+            items = "".join([f"<li>{ln}</li>" for ln in lines])
+        return f"<{tag}>" + items + f"</{tag}>"
 
     return f"""
     <html>
@@ -431,10 +447,10 @@ def render_email_html(
         </table>
 
         <h3>2. Key Observations</h3>
-        {to_html_list(key_observations)}
+        {to_html_list(key_observations, bold_items=True)}
 
         <h3>3. Questions for PM</h3>
-        {to_html_list(pm_questions)}
+        {to_html_list(pm_questions, ordered=True)}
       </body>
     </html>
     """.strip()
