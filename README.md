@@ -75,7 +75,7 @@ It runs `scripts/portfolio_intelligence.py` to:
 
 ### Optional GitHub Secrets
 - `SMTP_HOST` (default `smtp.gmail.com`)
-- `SMTP_PORT` (default `587`)
+- `SMTP_PORT` (default `465`)
 - `SMTP_SENDER` (default `SMTP_USERNAME`)
 - `PORTFOLIO_INTELLIGENCE_OPENAI_MODEL` (default `gpt-5.2`)
 - benchmark overrides:
