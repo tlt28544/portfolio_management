@@ -42,7 +42,7 @@ This repo also includes `.github/workflows/create_trade_files.yml` to generate t
 
 Generation rules:
 - scans latest existing file date from Google Cloud Storage bucket objects (`SpringGate-TRADE-YYYYMMDD.xlsx`),
-- reads `trade_date` from `Raw_Trades` (`Raw Trades` fallback) and generates missing dates only (`latest local + 1` to `latest raw trade date`),
+- reads `trade_date` from `Raw_Trades` (`Raw Trades` fallback) and generates missing dates only (`latest local + 1` to the second-latest raw trade date),
 - fills columns `A:AE` on `TRADE` sheet per mapping defaults (Portfolio/Fund/CMSHK/etc.) and keeps row 1 header,
 - uploads output as `SpringGate-TRADE-YYYYMMDD.xlsx` into the configured GCS bucket/prefix.
 

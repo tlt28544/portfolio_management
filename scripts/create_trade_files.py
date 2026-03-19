@@ -100,6 +100,13 @@ def detect_latest_trade_date(file_names: Sequence[str]) -> Optional[datetime.dat
     return latest
 
 
+def detect_second_latest_trade_date(dates: Sequence[datetime.date]) -> Optional[datetime.date]:
+    unique_dates = sorted(set(dates))
+    if len(unique_dates) < 2:
+        return None
+    return unique_dates[-2]
+
+
 def upload_trade_file(gcs_client: storage.Client, bucket_name: str, prefix: str, local_path: Path, filename: str) -> None:
     object_name = f"{prefix}{filename}" if prefix else filename
     bucket = gcs_client.bucket(bucket_name)
@@ -288,7 +295,11 @@ def main() -> None:
 
     existing_file_names = list_bucket_trade_files(gcs_client, bucket_name, bucket_prefix)
     local_latest = detect_latest_trade_date(existing_file_names)
-    remote_latest = max(grouped.keys())
+    remote_latest = detect_second_latest_trade_date(grouped.keys())
+
+    if remote_latest is None:
+        print("Fewer than two unique trade dates found in raw trades. Nothing to generate yet.")
+        return
 
     if local_latest is None:
         start_date = min(grouped.keys())
