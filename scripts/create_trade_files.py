@@ -138,20 +138,6 @@ def get_raw_trades_rows(
     raise RuntimeError("No rows found in either 'Raw_Trades' or 'Raw Trades' tab")
 
 
-def deduplicate_by_row_no(rows: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
-    deduplicated: List[Dict[str, str]] = []
-    seen_row_no: set[str] = set()
-
-    for row in rows:
-        row_no = (row.get("row_no") or "").strip()
-        if row_no in seen_row_no:
-            continue
-        seen_row_no.add(row_no)
-        deduplicated.append(row)
-
-    return deduplicated
-
-
 def format_investment_code(exchange_code: str, product_code: str) -> str:
     exchange_code = (exchange_code or "").strip().upper()
     product_code = (product_code or "").strip()
@@ -276,7 +262,6 @@ def main() -> None:
     gcs_client = get_gcs_client(service_account_json)
     header, raw_rows, source_tab = get_raw_trades_rows(sheets, spreadsheet_id)
     required = [
-        "row_no",
         "trade_date",
         "settle_date",
         "bs_type",
@@ -299,13 +284,8 @@ def main() -> None:
     if missing:
         raise RuntimeError(f"Missing required columns in {source_tab}: {missing}")
 
-    deduplicated_rows = deduplicate_by_row_no(raw_rows)
-    duplicate_count = len(raw_rows) - len(deduplicated_rows)
-    if duplicate_count > 0:
-        print(f"Removed {duplicate_count} duplicate rows based on row_no in {source_tab}.")
-
     grouped: Dict[datetime.date, List[Dict[str, str]]] = {}
-    for row in deduplicated_rows:
+    for row in raw_rows:
         t_date = parse_date(row.get("trade_date", ""))
         grouped.setdefault(t_date, []).append(row)
 
