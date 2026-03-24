@@ -247,6 +247,21 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
     wb.save(output_path)
 
 
+def deduplicate_by_ref_no(rows: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+    deduplicated_rows: List[Dict[str, str]] = []
+    seen_ref_nos = set()
+
+    for row in rows:
+        ref_no = (row.get("ref_no") or "").strip()
+        if ref_no:
+            if ref_no in seen_ref_nos:
+                continue
+            seen_ref_nos.add(ref_no)
+        deduplicated_rows.append(row)
+
+    return deduplicated_rows
+
+
 def main() -> None:
     spreadsheet_id = os.environ["GSHEETS_SPREADSHEET_ID"]
     service_account_json = os.environ["GSHEETS_SERVICE_ACCOUNT_JSON"]
@@ -326,9 +341,10 @@ def main() -> None:
                     int((r.get("row_no") or "0").strip() or 0),
                 ),
             )
+            records_deduplicated = deduplicate_by_ref_no(records_sorted)
             output_name = f"SpringGate-TRADE-{t_date:%Y%m%d}.xlsx"
             output_path = temp_path / output_name
-            write_trade_file(template_path, output_path, records_sorted, t_date)
+            write_trade_file(template_path, output_path, records_deduplicated, t_date)
             upload_trade_file(gcs_client, bucket_name, bucket_prefix, output_path, output_name)
             existing_file_names = [name for name in existing_file_names if name != output_name]
             existing_file_names.append(output_name)
