@@ -207,6 +207,7 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
             + to_float(row.get("trade_levy", ""))
             + to_float(row.get("frc_levy", ""))
             + to_float(row.get("clearing_fee", ""))
+            + to_float(row.get("other_fees", ""))
         )
 
         values = {
