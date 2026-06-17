@@ -3,7 +3,9 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -29,6 +31,38 @@ DATE_PATTERNS = [
 ]
 
 ASOF_RE = re.compile(r"SpringGate-TRADE-(\d{8})\.xlsx$")
+
+
+def get_required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable or GitHub secret: {name}")
+    return value
+
+
+def format_row_context(row: Dict[str, str]) -> str:
+    context_parts = []
+    for column in ("row_no", "ref_no", "trade_date", "settle_date", "product_code", "bs_type"):
+        value = (row.get(column) or "").strip()
+        if value:
+            context_parts.append(f"{column}={value!r}")
+    return ", ".join(context_parts) if context_parts else "no row context available"
+
+
+def parse_row_no(value: str) -> int:
+    raw = (value or "").strip()
+    if not raw:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            parsed = float(raw)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported row_no value: {raw!r}") from exc
+        if not parsed.is_integer():
+            raise ValueError(f"Unsupported non-integer row_no value: {raw!r}")
+        return int(parsed)
 
 
 def get_sheets_service(service_account_json: str):
@@ -169,11 +203,14 @@ def format_investment_code(exchange_code: str, product_code: str) -> str:
     return product_code
 
 
-def to_float(raw: str) -> float:
+def to_float(raw: str, field_name: str = "numeric value") -> float:
     raw = (raw or "").strip().replace(",", "")
     if raw == "":
         return 0.0
-    return float(raw)
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"Invalid {field_name}: {raw!r}") from exc
 
 
 def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict[str, str]], trade_date: datetime.date) -> None:
@@ -202,12 +239,12 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
         external_ref = f"{trade_date:%Y%m%d}_{seq}"
 
         other_expenses = (
-            to_float(row.get("stamp_fee", ""))
-            + to_float(row.get("trade_fee", ""))
-            + to_float(row.get("trade_levy", ""))
-            + to_float(row.get("frc_levy", ""))
-            + to_float(row.get("clearing_fee", ""))
-            + to_float(row.get("other_fees", ""))
+            to_float(row.get("stamp_fee", ""), "stamp_fee")
+            + to_float(row.get("trade_fee", ""), "trade_fee")
+            + to_float(row.get("trade_levy", ""), "trade_levy")
+            + to_float(row.get("frc_levy", ""), "frc_levy")
+            + to_float(row.get("clearing_fee", ""), "clearing_fee")
+            + to_float(row.get("other_fees", ""), "other_fees")
         )
 
         values = {
@@ -226,12 +263,12 @@ def write_trade_file(template_path: Path, output_path: Path, rows: Sequence[Dict
             "R": (row.get("trade_ccy") or "").strip(),
             "S": (row.get("trade_ccy") or "").strip(),
             "T": (row.get("trade_ccy") or "").strip(),
-            "V": to_float(row.get("total_qty", "")),
-            "X": to_float(row.get("avg_price", "")),
-            "Y": to_float(row.get("gross_amount", "")),
-            "Z": to_float(row.get("commission", "")),
+            "V": to_float(row.get("total_qty", ""), "total_qty"),
+            "X": to_float(row.get("avg_price", ""), "avg_price"),
+            "Y": to_float(row.get("gross_amount", ""), "gross_amount"),
+            "Z": to_float(row.get("commission", ""), "commission"),
             "AA": other_expenses,
-            "AB": to_float(row.get("net_amount", "")),
+            "AB": to_float(row.get("net_amount", ""), "net_amount"),
             "AD": BROKER_CODE_DEFAULT,
             "AE": CUSTODIAN_CODE_DEFAULT,
         }
@@ -264,9 +301,9 @@ def deduplicate_by_ref_no(rows: Sequence[Dict[str, str]]) -> List[Dict[str, str]
 
 
 def main() -> None:
-    spreadsheet_id = os.environ["GSHEETS_SPREADSHEET_ID"]
-    service_account_json = os.environ["GSHEETS_SERVICE_ACCOUNT_JSON"]
-    bucket_name = os.environ["GCS_TRADE_FILES_BUCKET"]
+    spreadsheet_id = get_required_env("GSHEETS_SPREADSHEET_ID")
+    service_account_json = get_required_env("GSHEETS_SERVICE_ACCOUNT_JSON")
+    bucket_name = get_required_env("GCS_TRADE_FILES_BUCKET")
     bucket_prefix = os.environ.get("GCS_TRADE_FILES_PREFIX", "")
     if bucket_prefix and not bucket_prefix.endswith("/"):
         bucket_prefix = f"{bucket_prefix}/"
@@ -302,7 +339,10 @@ def main() -> None:
 
     grouped: Dict[datetime.date, List[Dict[str, str]]] = {}
     for row in raw_rows:
-        t_date = parse_date(row.get("trade_date", ""))
+        try:
+            t_date = parse_date(row.get("trade_date", ""))
+        except ValueError as exc:
+            raise ValueError(f"Invalid trade_date while grouping row ({format_row_context(row)}): {exc}") from exc
         grouped.setdefault(t_date, []).append(row)
 
     if not grouped:
@@ -339,17 +379,26 @@ def main() -> None:
                 key=lambda r: (
                     parse_date(r.get("trade_date", "")).isoformat(),
                     (r.get("ref_no") or "").strip(),
-                    int((r.get("row_no") or "0").strip() or 0),
+                    parse_row_no(r.get("row_no", "")),
                 ),
             )
             records_deduplicated = deduplicate_by_ref_no(records_sorted)
             output_name = f"SpringGate-TRADE-{t_date:%Y%m%d}.xlsx"
             output_path = temp_path / output_name
-            write_trade_file(template_path, output_path, records_deduplicated, t_date)
+            try:
+                write_trade_file(template_path, output_path, records_deduplicated, t_date)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to write {output_name}") from exc
             upload_trade_file(gcs_client, bucket_name, bucket_prefix, output_path, output_name)
             existing_file_names = [name for name in existing_file_names if name != output_name]
             existing_file_names.append(output_name)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+        print(f"::error title=Create trade files failed::{message}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
